@@ -4,10 +4,10 @@ Build a banking application with a C++ backend and Python/Tkinter frontend, appl
 ## Running the frontend
 
 ```bash
-python3 bank_app.py
+/opt/homebrew/bin/python3.15 bank_app.py
 ```
 
-Only the Python standard library is needed. You need a Python build with a working Tk 8.6. On macOS, Apple's bundled `/usr/bin/python3` ships the deprecated Tk 8.5, which can hang on startup. Use Homebrew instead (`brew install python-tk`, then run with `/opt/homebrew/bin/python3`) or the python.org installer.
+Only the Python standard library is needed. You need a Python build with a working Tk (8.6 or newer). On macOS, Apple's bundled `/usr/bin/python3` ships the deprecated Tk 8.5, which hangs on startup. Install Homebrew's Python with Tk (`brew install python-tk`) and run the app with that Python, as above. To confirm Tk works, run `python3.15 -c "import tkinter; print(tkinter.TkVersion)"`; it should print 8.6 or newer.
 
 The current version is an MVP that runs on **mock data**. You can browse accounts, view transaction history, and deposit, withdraw and transfer money. Nothing is saved, and every run starts from the same seed data.
 
