@@ -7,7 +7,7 @@ backend is ready, pass that in instead - see mock_bank.py for the contract.
 """
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Optional
 
 from mock_bank import MockBank
@@ -39,6 +39,7 @@ class BankApp(tk.Tk):
 
         self._build_accounts_pane()
         self._build_details_pane()
+        self._build_status_bar()
 
     def _build_accounts_pane(self) -> None:
         pane = ttk.LabelFrame(self, text="Accounts", padding=8)
@@ -63,7 +64,7 @@ class BankApp(tk.Tk):
         pane = ttk.LabelFrame(self, text="Account details", padding=8)
         pane.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
         pane.columnconfigure(0, weight=1)
-        pane.rowconfigure(2, weight=1)
+        pane.rowconfigure(3, weight=1)
 
         self.owner_var = tk.StringVar(value="Select an account")
         self.type_var = tk.StringVar(value="")
@@ -77,7 +78,16 @@ class BankApp(tk.Tk):
             anchor="w", pady=(4, 8)
         )
 
-        ttk.Label(pane, text="Transaction history").grid(row=1, column=0, sticky="w")
+        actions = ttk.Frame(pane)
+        actions.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(actions, text="Amount $").pack(side="left")
+        self.amount_var = tk.StringVar()
+        ttk.Entry(actions, textvariable=self.amount_var, width=12).pack(side="left", padx=(2, 8))
+        ttk.Button(actions, text="Deposit", command=self._on_deposit).pack(side="left")
+        ttk.Button(actions, text="Withdraw", command=self._on_withdraw).pack(side="left", padx=4)
+        ttk.Button(actions, text="Transfer…", command=self._on_transfer).pack(side="left")
+
+        ttk.Label(pane, text="Transaction history").grid(row=2, column=0, sticky="w")
 
         cols = ("date", "kind", "amount", "note")
         self.history_tree = ttk.Treeview(pane, columns=cols, show="headings", selectmode="none")
@@ -89,7 +99,13 @@ class BankApp(tk.Tk):
         ]:
             self.history_tree.heading(col, text=heading, anchor=anchor)
             self.history_tree.column(col, width=width, anchor=anchor)
-        self.history_tree.grid(row=2, column=0, sticky="nsew")
+        self.history_tree.grid(row=3, column=0, sticky="nsew")
+
+    def _build_status_bar(self) -> None:
+        self.status_var = tk.StringVar(value="Ready - using mock data")
+        ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", padding=(6, 2)).grid(
+            row=1, column=0, columnspan=2, sticky="ew"
+        )
 
     # --- Refresh ---------------------------------------------------------
 
@@ -136,6 +152,107 @@ class BankApp(tk.Tk):
         if selection and selection[0] != self.selected_id:
             self.selected_id = selection[0]
             self.refresh_details()
+
+    # --- Actions ---------------------------------------------------------
+
+    def _parse_amount(self, raw: str) -> Optional[float]:
+        try:
+            return float(raw.strip().replace(",", "").lstrip("$"))
+        except ValueError:
+            messagebox.showerror("Invalid amount", "Enter a valid amount.", parent=self)
+            return None
+
+    def _run_action(self, title: str, action, success_msg: str) -> bool:
+        """Call a bank operation, showing its ValueError to the user on failure."""
+        try:
+            action()
+        except ValueError as err:
+            messagebox.showerror(title, str(err), parent=self)
+            return False
+        self.amount_var.set("")
+        self.status_var.set(success_msg)
+        self.refresh_accounts()
+        return True
+
+    def _on_deposit(self) -> None:
+        amount = self._parse_amount(self.amount_var.get())
+        if amount is None or self.selected_id is None:
+            return
+        acc_id = self.selected_id
+        self._run_action(
+            "Deposit failed",
+            lambda: self.bank.deposit(acc_id, amount),
+            f"Deposited {fmt_money(amount)} to {acc_id}",
+        )
+
+    def _on_withdraw(self) -> None:
+        amount = self._parse_amount(self.amount_var.get())
+        if amount is None or self.selected_id is None:
+            return
+        acc_id = self.selected_id
+        self._run_action(
+            "Withdrawal failed",
+            lambda: self.bank.withdraw(acc_id, amount),
+            f"Withdrew {fmt_money(amount)} from {acc_id}",
+        )
+
+    def _on_transfer(self) -> None:
+        if self.selected_id is not None:
+            TransferDialog(self, self.selected_id)
+
+
+class TransferDialog(tk.Toplevel):
+    def __init__(self, app: BankApp, from_id: str) -> None:
+        super().__init__(app)
+        self.app = app
+        self.from_id = from_id
+
+        self.title("Transfer")
+        self.resizable(False, False)
+        self.transient(app)
+
+        body = ttk.Frame(self, padding=12)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text=f"From: {from_id}").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        ttk.Label(body, text="To:").grid(row=1, column=0, sticky="w")
+        destinations = [
+            f"{acc.account_id} - {acc.owner} ({acc.account_type})"
+            for acc in app.bank.list_accounts()
+            if acc.account_id != from_id
+        ]
+        self.dest_var = tk.StringVar(value=destinations[0] if destinations else "")
+        ttk.Combobox(body, textvariable=self.dest_var, values=destinations, state="readonly", width=34).grid(
+            row=1, column=1, sticky="ew", pady=2
+        )
+
+        ttk.Label(body, text="Amount $").grid(row=2, column=0, sticky="w")
+        self.amount_var = tk.StringVar(value=app.amount_var.get())
+        entry = ttk.Entry(body, textvariable=self.amount_var, width=12)
+        entry.grid(row=2, column=1, sticky="w", pady=2)
+
+        buttons = ttk.Frame(body)
+        buttons.grid(row=3, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        ttk.Button(buttons, text="Cancel", command=self.destroy).pack(side="right")
+        ttk.Button(buttons, text="Transfer", command=self._submit).pack(side="right", padx=(0, 6))
+
+        self.bind("<Return>", lambda _e: self._submit())
+        self.bind("<Escape>", lambda _e: self.destroy())
+        entry.focus_set()
+        self.grab_set()
+
+    def _submit(self) -> None:
+        amount = self.app._parse_amount(self.amount_var.get())
+        if amount is None or not self.dest_var.get():
+            return
+        to_id = self.dest_var.get().split(" - ", 1)[0]
+        if self.app._run_action(
+            "Transfer failed",
+            lambda: self.app.bank.transfer(self.from_id, to_id, amount),
+            f"Transferred {fmt_money(amount)} from {self.from_id} to {to_id}",
+        ):
+            self.destroy()
 
 
 def main() -> None:
